@@ -1,0 +1,137 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-04-18"
+---
+
+```{r}
+library(dplyr)
+df = read.csv("SeoulBikeData.csv", stringsAsFactors = TRUE)
+df$Date = as.Date(as.character(df$Date), "%d/%m/%Y")
+head(df)
+```
+
+### Dataframes to be used
+
+```{r}
+weekday = df %>%
+            filter(Weekend == 0)
+weekday = weekday[, -15] #remove weekend column
+weekend = df %>%
+            filter(Weekend == 1)
+weekend = weekend[, -15] #remove weekend column
+median(weekday$Rented.Bike.Count)
+median(weekend$Rented.Bike.Count)
+
+weekday_class = weekday
+weekday_class$countClass = as.factor(ifelse(weekday_class$Rented.Bike.Count > 527, "1", "0")) #1 for "high" count, above median
+weekend_class = weekend
+weekend_class$countClass = as.factor(ifelse(weekend_class$Rented.Bike.Count > 463, "1", "0")) #1 for "high" count, above median
+
+#remove bike count response column from class sets
+weekday_class = weekday_class[, -2]
+weekend_class = weekend_class[, -2]
+```
+
+
+```{r}
+
+library(tidyverse)
+library(caret)
+library(e1071)
+library(randomForest)
+
+
+
+
+weekday_class$countClass <- as.factor(weekday_class$countClass)
+
+
+set.seed(123)
+split <- createDataPartition(weekday_class$countClass, p = 0.8, list = FALSE)
+train <- weekday_class[split, ]
+test <- weekday_class[-split, ]
+
+```
+
+```{r}
+log_model <- glm(countClass ~ ., data = train, family = "binomial")
+log_probs <- predict(log_model, newdata = test, type = "response")
+log_preds <- ifelse(log_probs > 0.5, 1, 0)
+log_conf <- confusionMatrix(as.factor(log_preds), test$countClass)
+print(log_conf)
+
+```
+```{r}
+bag_model <- randomForest(countClass ~ ., data = train, mtry = ncol(train) - 1, importance = TRUE)
+bag_preds <- predict(bag_model, newdata = test)
+bag_conf <- confusionMatrix(bag_preds, test$countClass)
+print(bag_conf)
+
+```
+
+```{r}
+svm_model <- svm(countClass ~ ., data = train, kernel = "radial")
+svm_preds <- predict(svm_model, newdata = test)
+svm_conf <- confusionMatrix(svm_preds, test$countClass)
+print(svm_conf)
+
+```
+```{r}
+data.frame(
+  Model = c("Logistic", "Bagging", "SVM"),
+  Accuracy = c(
+    log_conf$overall["Accuracy"],
+    bag_conf$overall["Accuracy"],
+    svm_conf$overall["Accuracy"]
+  )
+)
+
+```
+
+```{r}
+misclass_rates <- data.frame(
+  Model = c("Logistic", "Bagging", "SVM"),
+  Accuracy = c(
+    log_conf$overall["Accuracy"],
+    bag_conf$overall["Accuracy"],
+    svm_conf$overall["Accuracy"]
+  )
+)
+
+misclass_rates$MisclassificationRate <- 1 - misclass_rates$Accuracy
+print(misclass_rates)
+
+```
+
+# Q1 
+The purpose of this project is to predict whether weekday bike usage is “high” or “low” using weather and time-based features. This classification task helps city planners and transportation departments better understand daily demand patterns and potentially allocate resources (like bike maintenance or infrastructure) more effectively. The data has been split into separate weekday and weekend datasets, and in this analysis, we focus specifically on weekday usage using the weekday_class dataframe.
+
+# Q2 
+ We applied three supervised classification models: logistic regression, bagging (via random forest), and support  vector machines (SVM), using a training-test split (80/20). The countClass variable  (high vs. low count) was treated as a binary classification target. All models were trained using  the same features and accuracy and misclassification rate were used for evaluation.
+
+- Logistic regression was used as  a baseline linear classifier.
+
+- Multiple decision trees were combined through bagging to decrease the variance.
+
+- SVM  with a radial kernel modeled non-linear boundaries.
+
+The most important tuning parameters were:
+
+- mtry in  bagging (number of variables considered at each split),
+
+- cost and gamma in SVM.
+
+We used default parameters  for a fair initial comparison but noted that tuning could further improve SVM performance.
+
+# Q3 
+The results show that bagging achieved the best performance with 95.13% accuracy and 4.87% mis-classification rate which demonstrates ensemble methods' effectiveness for this classification problem with its complex patterns. The simpler logistic regression model achieved around 85% accuracy while its linear nature makes interpretation easier. The SVM model produced strong results which exceeded logistic regression performance yet fell short of bagging outcomes.
+
+Flexible models such as bagging demonstrate substantial error reduction in scenarios that have sufficient data and structural elements. The choice of logistic regression remains suitable when interpretability or training speed becomes a priority.
+
+# Ethical consideration 
+The implementation of predictive models to public transportation data requires both equity and privacy considerations. The models trained from historical usage data will reproduce existing patterns which may result in inaccurate demand predictions for lower-income and under-served areas. The predictions will fail to generalize fairly because the data lacks contextual factors such as community events and accessibility and weather anomalies.
+
+The models' decisions which use these predictions will directly impact real communities. Model predictions should function as supportive tools instead of independent decision-makers while stakeholders need to participate in result interpretation and application processes.
+
+
